@@ -25,9 +25,14 @@ SetTextureFilter(Font_SpaceMono_Normal.texture, TextureFilter.TEXTURE_FILTER_ANI
 SetTextureFilter(Font_SpaceMono_Italic.texture, TextureFilter.TEXTURE_FILTER_ANISOTROPIC_16X);
 SetTextureFilter(Font_SpaceMono_BoldItalic.texture, TextureFilter.TEXTURE_FILTER_ANISOTROPIC_16X);
 
+if (2 > Environment.GetCommandLineArgs().Length)
+{
 
+    Console.WriteLine("Missing Input File");
+    return 1;
+}
 
-string filetext = File.ReadAllText("test.ini");
+string filetext = File.ReadAllText(Environment.GetCommandLineArgs()[1]);
 
 var steps = ReadContent(filetext);
 
@@ -41,6 +46,7 @@ Opp now = null;
 Color fg = WHITE;
 Color bg = BLACK;
 float fontsize = 20;
+float textspeed = .02f;
 Font font = Font_SpaceMono_Normal;
 
 
@@ -80,6 +86,10 @@ while (!WindowShouldClose())
 
             case Opp.Kind.WaitForClick:
                 waitforclick = true;
+                break;
+
+            case Opp.Kind.Speed:
+                textspeed = now.Speed;
                 break;
 
             case Opp.Kind.Bold:
@@ -142,7 +152,8 @@ while (!WindowShouldClose())
                     FontSize = fontsize,
                     Position = currsor,
                     Font = Font_SpaceMono_Normal,
-                    MoveLeftRight = nextLeftToRight
+                    MoveLeftRight = nextLeftToRight,
+                    TextSpeed = textspeed
                 });
 
                 if (nextLeftToRight && leftrightopp != null)
@@ -166,7 +177,7 @@ while (!WindowShouldClose())
                         currentText.Position.Y = GetScreenHeight() / 2;
                     }
 
-                    currentText.Position.X = (float)(size.X - (.5 * size.X));
+                    currentText.Position.X = (float)(GetScreenWidth() / 2.0 - (.5 * size.X));
                 }
 
                 break;
@@ -280,6 +291,7 @@ Opp BuildOpCommand(string v)
             OpKind = Opp.Kind.Delay,
             Time = double.Parse(split[1])
         },
+        "speed" => new() { OpKind = Opp.Kind.Speed, Speed = float.Parse(split[1]) },
         "clear" => new() { OpKind = Opp.Kind.Clear },
         "left" => new() { OpKind = Opp.Kind.Left },
         "start_togeather" => new() { OpKind = Opp.Kind.StartTogeather },
@@ -312,17 +324,25 @@ class Fader
     public float MoveSpeed = 2;
     public float LeftPercent = 0;
     public float RightPercent = 1;
+    public double TextSpeed = .02;
 
     public bool IsFadded() => Goal.Length < Currsor;
 
     public void Update()
     {
+        if (TextSpeed == 0)
+        {
+            Now = Goal;
+            Currsor = Goal.Length;
+        }
+
         if (!IsFadded() && NextUpdateTime < GetTime())
         {
             Now = Goal[..Currsor];
             Currsor += 1;
-            NextUpdateTime = GetTime() + .02;
+            NextUpdateTime = GetTime() + TextSpeed;
         }
+
 
         if (MoveLeftRight)
         {
@@ -355,7 +375,7 @@ class Fader
 
 class Opp
 {
-    public enum Kind { Nothing, Fg, Bg, Text, Delay, Clear, SetCursor, FontSize, Center, Left, StartTogeather, EndTogeather, Bold, BoldItalic, Normal, Italic, LeftToRight, WaitForClick };
+    public enum Kind { Nothing, Fg, Bg, Text, Delay, Clear, SetCursor, FontSize, Center, Left, StartTogeather, EndTogeather, Bold, BoldItalic, Normal, Italic, LeftToRight, WaitForClick, Speed };
     public Kind OpKind;
     public Color color;
     public string Text;
@@ -363,8 +383,8 @@ class Opp
     public double Time;
     public float Size;
     public float LeftPercent, RightPercent;
+    internal float Speed;
 }
-
 
 class TextOnScreen
 {
@@ -373,3 +393,4 @@ class TextOnScreen
     public Vector2 Position;
     public float FontSize;
 }
+
