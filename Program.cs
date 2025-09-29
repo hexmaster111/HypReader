@@ -151,7 +151,7 @@ while (!WindowShouldClose())
                     Fg = fg,
                     FontSize = fontsize,
                     Position = currsor,
-                    Font = Font_SpaceMono_Normal,
+                    Font = font,
                     MoveLeftRight = nextLeftToRight,
                     TextSpeed = textspeed
                 });
