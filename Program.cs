@@ -144,6 +144,10 @@ while (!WindowShouldClose())
                 fontsize = now.Size;
                 break;
 
+            case Opp.Kind.CurrsorBottem:
+                currsor.Y = GetScreenHeight() - fontsize;
+                break;
+
             case Opp.Kind.Text:
                 faders.Add(currentText = new()
                 {
@@ -238,7 +242,7 @@ List<Opp> ReadContent(string conent)
         {
             ret.Add(BuildOpCommand(line[1..^1]));
         }
-        else if (line.StartsWith("//"))
+        else if (line.StartsWith(";"))
         {
             continue;
         }
@@ -304,6 +308,7 @@ Opp BuildOpCommand(string v)
         "lefttoright" => new() { OpKind = Opp.Kind.LeftToRight, LeftPercent = float.Parse(split[1]), RightPercent = float.Parse(split[2]) },
         "fontsize" => new() { OpKind = Opp.Kind.FontSize, Size = float.Parse(split[1]) },
         "waitforclick" => new() { OpKind = Opp.Kind.WaitForClick },
+        "currsorbottem" => new() { OpKind = Opp.Kind.CurrsorBottem },
         _ => new() { OpKind = Opp.Kind.Nothing },
     };
 }
@@ -375,7 +380,7 @@ class Fader
 
 class Opp
 {
-    public enum Kind { Nothing, Fg, Bg, Text, Delay, Clear, SetCursor, FontSize, Center, Left, StartTogeather, EndTogeather, Bold, BoldItalic, Normal, Italic, LeftToRight, WaitForClick, Speed };
+    public enum Kind { Nothing, Fg, Bg, Text, Delay, Clear, SetCursor, FontSize, Center, Left, StartTogeather, EndTogeather, Bold, BoldItalic, Normal, Italic, LeftToRight, WaitForClick, Speed, CurrsorBottem };
     public Kind OpKind;
     public Color color;
     public string Text;
