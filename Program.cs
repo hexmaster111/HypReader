@@ -32,6 +32,8 @@ if (2 > Environment.GetCommandLineArgs().Length)
     return 1;
 }
 
+RELOAD:
+
 string filetext = File.ReadAllText(Environment.GetCommandLineArgs()[1]);
 
 var steps = ReadContent(filetext);
@@ -64,8 +66,43 @@ Opp leftrightopp = null;
 
 bool waitforclick = false;
 
+bool hasStartHere = ops.Any(x => x.OpKind == Opp.Kind.StartHere);
+if (hasStartHere) while (ops.Pop().OpKind != Opp.Kind.StartHere) ;
+
+bool ReloadFile = false;
+
+var filepath = Path.GetFullPath(Environment.GetCommandLineArgs()[1]);
+
+
+
+var fsWatch = new FileSystemWatcher(Path.GetDirectoryName(filepath));
+
+fsWatch.Changed += (object s, FileSystemEventArgs e) =>
+{
+    if (e.FullPath == filepath) ReloadFile = true;
+};
+
+fsWatch.EnableRaisingEvents = true;
+
+
 while (!WindowShouldClose())
 {
+
+    if (IsKeyPressed(KeyboardKey.KEY_R) || ReloadFile)
+    {
+        PollInputEvents();
+        ReloadFile = false;
+        goto RELOAD;
+    }
+
+    if (IsKeyDown(KeyboardKey.KEY_SEMICOLON))
+    {
+        if (currentText != null)
+        {
+            currentText.Now = currentText.Goal;
+            currentText.Currsor = currentText.Goal.Length;
+        }
+    }
 
     while ((togeather || currentText == null) && resumeAt == 0 && !waitforclick)
     {
@@ -148,9 +185,14 @@ while (!WindowShouldClose())
                 currsor.Y = GetScreenHeight() - fontsize;
                 break;
 
+            case Opp.Kind.Halt:
+                goto FILE_OVER;
+
+
             case Opp.Kind.Text:
                 faders.Add(currentText = new()
                 {
+                    Opp = now,
                     Goal = now.Text,
                     Fg = fg,
                     FontSize = fontsize,
@@ -248,10 +290,15 @@ List<Opp> ReadContent(string conent)
         }
         else if (!string.IsNullOrWhiteSpace(line))
         {
+            var textEffects = ParseTextEffects(line, out line);
+
+            if (line == null) continue;
+
             ret.Add(new()
             {
                 OpKind = Opp.Kind.Text,
-                Text = line
+                Text = line,
+                TextEffects = textEffects
             });
         }
     }
@@ -260,6 +307,96 @@ List<Opp> ReadContent(string conent)
     return ret;
 }
 
+
+
+List<TextEffect> ParseTextEffects(string line, out string? outline)
+{
+    var ret = new List<TextEffect>();
+
+    Queue<char> str = new(line);
+
+    string buff = "";
+    string cmd = "";
+    outline = "";
+    int charno = 0;
+    int startch = 0;
+
+    bool inCommand = false;
+
+
+    while (0 < str.Count)
+    {
+        char c = str.Dequeue();
+
+        if (inCommand)
+        {
+            if (c == ']')
+            {
+                TextEffect tf = new();
+                var cmdParts = buff.Split(" ");
+
+                tf.Kind = cmdParts[0] switch
+                {
+                    "glitch" => TextEffect.KeKind.Glitch,
+                };
+
+                switch (tf.Kind)
+                {
+
+                    case TextEffect.KeKind.Glitch:
+                        tf.GlitchWords = cmdParts[1..].ToList();
+                        tf.CommandStartPos = startch;
+
+
+                        StringBuilder newnow = new(outline);
+
+                        for (int i = 0; i < tf.GlitchWords[0].Length; i++)
+                        {
+                            newnow.Append(tf.GlitchWords[0][i]);
+                        }
+
+                        outline = newnow.ToString();
+
+                        int longest = tf.GlitchWords.Max(x => x.Length);
+                        string s = ""; for (int i = 0; i < longest - tf.GlitchWords[0].Length; i++) s += " ";
+                        outline += s;
+
+                        break;
+                }
+
+
+                ret.Add(tf);
+                buff = "";
+                inCommand = false;
+            }
+            else
+            {
+                buff += c;
+            }
+        }
+        else
+        {
+            charno += 1;
+        }
+
+
+        // [\ lets you type the "[" char in a file
+        if (c == '[' && str.Peek() != '\\')
+        {
+            inCommand = true;
+            startch = charno;
+        }
+
+        if (!inCommand && c != ']')
+        {
+            outline += c;
+        }
+
+    }
+
+
+    return ret;
+}
 
 
 Opp BuildOpCommand(string v)
@@ -309,8 +446,26 @@ Opp BuildOpCommand(string v)
         "fontsize" => new() { OpKind = Opp.Kind.FontSize, Size = float.Parse(split[1]) },
         "waitforclick" => new() { OpKind = Opp.Kind.WaitForClick },
         "currsorbottem" => new() { OpKind = Opp.Kind.CurrsorBottem },
+        "halt" => new() { OpKind = Opp.Kind.Halt },
+        "starthere" => new() { OpKind = Opp.Kind.StartHere },
         _ => new() { OpKind = Opp.Kind.Nothing },
     };
+}
+
+
+class TextEffect
+{
+    public enum KeKind
+    {
+        Glitch
+    }
+
+
+    public KeKind Kind;
+
+    public List<string> GlitchWords;
+    public int CommandStartPos;
+    internal double GlitchTimer;
 }
 
 class Fader
@@ -322,7 +477,7 @@ class Fader
     public Color Fg;
     public float FontSize;
 
-    public double NextUpdateTime = 0;
+    public double NextUpdateFadeTime = 0;
     public Font Font;
     public bool MoveLeftRight;
     public int MoveDirection = 1;
@@ -330,8 +485,29 @@ class Fader
     public float LeftPercent = 0;
     public float RightPercent = 1;
     public double TextSpeed = .02;
+    internal Opp Opp;
 
     public bool IsFadded() => Goal.Length < Currsor;
+
+    public int LongestGlitchWordLength()
+    {
+        string longest = "";
+        foreach (var item in Opp.TextEffects)
+        {
+            if (item.Kind == TextEffect.KeKind.Glitch)
+            {
+                foreach (var word in item.GlitchWords)
+                {
+                    if (longest.Length < word.Length)
+                    {
+                        longest = word;
+                    }
+                }
+            }
+        }
+
+        return longest.Length;
+    }
 
     public void Update()
     {
@@ -341,12 +517,39 @@ class Fader
             Currsor = Goal.Length;
         }
 
-        if (!IsFadded() && NextUpdateTime < GetTime())
+        if (!IsFadded() && NextUpdateFadeTime < GetTime())
         {
             Now = Goal[..Currsor];
             Currsor += 1;
-            NextUpdateTime = GetTime() + TextSpeed;
+            NextUpdateFadeTime = GetTime() + TextSpeed;
         }
+
+        foreach (var item in Opp.TextEffects)
+        {
+
+
+            if (Currsor > item.CommandStartPos + LongestGlitchWordLength())
+            {
+                // swap out that chunk of text 
+                if (item.GlitchTimer < GetTime())
+                {
+                    item.GlitchTimer = GetTime() + .1;
+
+                    string word = item.GlitchWords[GetRandomValue(0, item.GlitchWords.Count - 1)];
+
+                    StringBuilder newnow = new(Now);
+
+                    for (int i = 0; i < word.Length; i++)
+                    {
+                        newnow[i + (item.CommandStartPos - 1)] = word[i];
+                    }
+
+                    Now = newnow.ToString();
+                }
+            }
+
+        }
+
 
 
         if (MoveLeftRight)
@@ -380,7 +583,7 @@ class Fader
 
 class Opp
 {
-    public enum Kind { Nothing, Fg, Bg, Text, Delay, Clear, SetCursor, FontSize, Center, Left, StartTogeather, EndTogeather, Bold, BoldItalic, Normal, Italic, LeftToRight, WaitForClick, Speed, CurrsorBottem };
+    public enum Kind { Nothing, Fg, Bg, Text, Delay, Clear, SetCursor, FontSize, Center, Left, StartTogeather, EndTogeather, Bold, BoldItalic, Normal, Italic, LeftToRight, WaitForClick, Speed, CurrsorBottem, Halt, StartHere };
     public Kind OpKind;
     public Color color;
     public string Text;
@@ -389,6 +592,7 @@ class Opp
     public float Size;
     public float LeftPercent, RightPercent;
     internal float Speed;
+    internal List<TextEffect> TextEffects;
 }
 
 class TextOnScreen
