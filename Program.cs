@@ -6,6 +6,7 @@ using static Raylib_CsLo.RayGui;
 using static Raylib_CsLo.Raylib;
 using Rectangle = Raylib_CsLo.Rectangle;
 
+SetConfigFlags(ConfigFlags.FLAG_WINDOW_RESIZABLE);
 InitWindow(1000, 800, "HypRender");
 SetTargetFPS(GetMonitorRefreshRate(GetCurrentMonitor()));
 
@@ -31,6 +32,9 @@ if (2 > Environment.GetCommandLineArgs().Length)
     Console.WriteLine("Missing Input File");
     return 1;
 }
+
+FileSystemWatcher? fsWatch = null;
+
 
 RELOAD:
 
@@ -65,6 +69,8 @@ bool nextLeftToRight = false;
 Opp leftrightopp = null;
 
 bool waitforclick = false;
+bool typeNext = false;
+bool dev = false;
 
 bool hasStartHere = ops.Any(x => x.OpKind == Opp.Kind.StartHere);
 if (hasStartHere) while (ops.Pop().OpKind != Opp.Kind.StartHere) ;
@@ -74,13 +80,15 @@ bool ReloadFile = false;
 var filepath = Path.GetFullPath(Environment.GetCommandLineArgs()[1]);
 
 
-
-var fsWatch = new FileSystemWatcher(Path.GetDirectoryName(filepath));
-
-fsWatch.Changed += (object s, FileSystemEventArgs e) =>
+if (fsWatch == null)
 {
-    if (e.FullPath == filepath) ReloadFile = true;
-};
+    fsWatch = new FileSystemWatcher(Path.GetDirectoryName(filepath));
+
+    fsWatch.Changed += (object s, FileSystemEventArgs e) =>
+    {
+        if (e.FullPath == filepath) ReloadFile = true;
+    };
+}
 
 fsWatch.EnableRaisingEvents = true;
 
@@ -88,14 +96,14 @@ fsWatch.EnableRaisingEvents = true;
 while (!WindowShouldClose())
 {
 
-    if (IsKeyPressed(KeyboardKey.KEY_R) || ReloadFile)
+    if (IsKeyPressed(KeyboardKey.KEY_F1) || ReloadFile)
     {
         PollInputEvents();
         ReloadFile = false;
         goto RELOAD;
     }
 
-    if (IsKeyDown(KeyboardKey.KEY_SEMICOLON))
+    if (IsKeyDown(KeyboardKey.KEY_F2) || dev)
     {
         if (currentText != null)
         {
@@ -115,6 +123,14 @@ while (!WindowShouldClose())
         {
             case Opp.Kind.Fg:
                 fg = now.color;
+                break;
+
+            case Opp.Kind.TypeNext:
+                typeNext = true;
+                break;
+
+            case Opp.Kind.DevMode:
+                dev = !dev;
                 break;
 
             case Opp.Kind.Bg:
@@ -199,8 +215,11 @@ while (!WindowShouldClose())
                     Position = currsor,
                     Font = font,
                     MoveLeftRight = nextLeftToRight,
-                    TextSpeed = textspeed
+                    TextSpeed = textspeed,
+                    UserTypeThis = typeNext
                 });
+
+                typeNext = false;
 
                 if (nextLeftToRight && leftrightopp != null)
                 {
@@ -246,7 +265,8 @@ while (!WindowShouldClose())
         resumeAt = 0;
     }
 
-    if (waitforclick && IsMouseButtonDown(MouseButton.MOUSE_BUTTON_LEFT)) waitforclick = false;
+    if (waitforclick && (IsMouseButtonDown(MouseButton.MOUSE_BUTTON_LEFT) || IsKeyDown(KeyboardKey.KEY_ENTER)))
+        waitforclick = false;
 
 
     BeginDrawing();
@@ -448,6 +468,9 @@ Opp BuildOpCommand(string v)
         "currsorbottem" => new() { OpKind = Opp.Kind.CurrsorBottem },
         "halt" => new() { OpKind = Opp.Kind.Halt },
         "starthere" => new() { OpKind = Opp.Kind.StartHere },
+        "type" => new() { OpKind = Opp.Kind.TypeNext },
+        "dev" => new() { OpKind = Opp.Kind.DevMode },
+
         _ => new() { OpKind = Opp.Kind.Nothing },
     };
 }
@@ -485,9 +508,10 @@ class Fader
     public float LeftPercent = 0;
     public float RightPercent = 1;
     public double TextSpeed = .02;
-    internal Opp Opp;
+    public Opp Opp;
+    public bool UserTypeThis;
 
-    public bool IsFadded() => Goal.Length < Currsor;
+    public bool IsFadded() => Goal.Length <= Currsor;
 
     public int LongestGlitchWordLength()
     {
@@ -509,25 +533,66 @@ class Fader
         return longest.Length;
     }
 
+    public bool BlinkCursor = true;
+    public double NextBlinkStateChange = 0;
+
+    public void UpdateUserTypeThis()
+    {
+        if (GetTime() > NextBlinkStateChange)
+        {
+            NextBlinkStateChange = GetTime() + .25;
+            BlinkCursor = !BlinkCursor;
+        }
+
+
+        if (!IsFadded())
+        {
+            char keyWeWant = char.ToLower(Goal[Currsor]);
+
+            KeyboardKey key = KeyboardKey.KEY_NULL;
+            do
+            {
+                key = GetKeyPressed_();
+                char c = char.ToLower((char)key);
+
+                if (c == keyWeWant)
+                {
+                    Currsor += 1;
+                    Now = Goal[..Currsor];
+                }
+
+            } while (key != KeyboardKey.KEY_NULL);
+
+
+
+        }
+
+
+    }
+
     public void Update()
     {
-        if (TextSpeed == 0)
+
+        if (UserTypeThis)
+        {
+            UpdateUserTypeThis();
+        }
+
+        if (TextSpeed == 0 && !UserTypeThis)
         {
             Now = Goal;
             Currsor = Goal.Length;
         }
 
-        if (!IsFadded() && NextUpdateFadeTime < GetTime())
+        if (!UserTypeThis && !IsFadded() && NextUpdateFadeTime < GetTime())
         {
-            Now = Goal[..Currsor];
             Currsor += 1;
+            Now = Goal[..Currsor];
             NextUpdateFadeTime = GetTime() + TextSpeed;
         }
 
         foreach (var item in Opp.TextEffects)
         {
-
-
             if (Currsor > item.CommandStartPos + LongestGlitchWordLength())
             {
                 // swap out that chunk of text 
@@ -576,14 +641,25 @@ class Fader
 
     public void Draw()
     {
+        if (UserTypeThis && BlinkCursor && !IsFadded())
+        {
+            var size = MeasureTextEx(Font, Now, FontSize, 1);
+            var chsz = MeasureTextEx(Font, " ", FontSize, 1);
+
+
+            DrawRectangleRec(new Rectangle(Position.X + size.X, Position.Y + chsz.Y - (chsz.Y / 8), chsz.X, chsz.Y / 8), Fg);
+        }
+
         DrawTextEx(Font, Now, Position, FontSize, 1, Fg);
+
+
     }
 
 }
 
 class Opp
 {
-    public enum Kind { Nothing, Fg, Bg, Text, Delay, Clear, SetCursor, FontSize, Center, Left, StartTogeather, EndTogeather, Bold, BoldItalic, Normal, Italic, LeftToRight, WaitForClick, Speed, CurrsorBottem, Halt, StartHere };
+    public enum Kind { Nothing, Fg, Bg, Text, Delay, Clear, SetCursor, FontSize, Center, Left, StartTogeather, EndTogeather, Bold, BoldItalic, Normal, Italic, LeftToRight, WaitForClick, Speed, CurrsorBottem, Halt, StartHere, TypeNext, DevMode };
     public Kind OpKind;
     public Color color;
     public string Text;
