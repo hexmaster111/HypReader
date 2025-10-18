@@ -35,8 +35,12 @@ if (2 > Environment.GetCommandLineArgs().Length)
 
 FileSystemWatcher? fsWatch = null;
 
+// we dont wanna reload the global font offsets, we need to reload to see the changes to them 
+int fontsizeOffset = 0;
 
 RELOAD:
+PollInputEvents();
+
 
 string filetext = File.ReadAllText(Environment.GetCommandLineArgs()[1]);
 
@@ -72,6 +76,7 @@ bool waitforclick = false;
 bool typeNext = false;
 bool dev = false;
 
+
 bool hasStartHere = ops.Any(x => x.OpKind == Opp.Kind.StartHere);
 if (hasStartHere) while (ops.Pop().OpKind != Opp.Kind.StartHere) ;
 
@@ -96,9 +101,22 @@ fsWatch.EnableRaisingEvents = true;
 while (!WindowShouldClose())
 {
 
+    if(IsKeyPressed(KeyboardKey.KEY_EQUAL)){
+        fontsizeOffset += 1;
+        goto RELOAD;
+    }
+
+    if(IsKeyPressed(KeyboardKey.KEY_F11)){
+        ToggleFullscreen();
+    }
+
+    if(IsKeyPressed(KeyboardKey.KEY_MINUS)){
+        fontsizeOffset -= 1;
+        goto RELOAD;
+    }
+
     if (IsKeyPressed(KeyboardKey.KEY_F1) || ReloadFile)
     {
-        PollInputEvents();
         ReloadFile = false;
         goto RELOAD;
     }
@@ -198,7 +216,7 @@ while (!WindowShouldClose())
                 break;
 
             case Opp.Kind.CurrsorBottem:
-                currsor.Y = GetScreenHeight() - fontsize;
+                currsor.Y = GetScreenHeight() - (fontsize + fontsizeOffset);
                 break;
 
             case Opp.Kind.Halt:
@@ -211,7 +229,7 @@ while (!WindowShouldClose())
                     Opp = now,
                     Goal = now.Text,
                     Fg = fg,
-                    FontSize = fontsize,
+                    FontSize = fontsize + fontsizeOffset,
                     Position = currsor,
                     Font = font,
                     MoveLeftRight = nextLeftToRight,
@@ -230,7 +248,7 @@ while (!WindowShouldClose())
                 nextLeftToRight = false;
 
 
-                var size = MeasureTextEx(currentText.Font, now.Text, (int)fontsize, 1);
+                var size = MeasureTextEx(currentText.Font, now.Text, (int)fontsize + fontsizeOffset, 1);
                 currsor += size;
                 currsor.X = 0;
 
